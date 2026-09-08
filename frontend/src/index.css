@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 320px;
+  overflow-x: hidden;
+  font-family: "IBM Plex Sans", Arial, sans-serif;
+  color: #182331;
+  background: #f3f5f7;
+}
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+button, input { font: inherit; }
+button { cursor: pointer; }
