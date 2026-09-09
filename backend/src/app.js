@@ -12,6 +12,7 @@ import reportRoutes from './routes/report.routes.js'
 import templateRoutes from './routes/template.routes.js'
 import sampleRequestRoutes from './routes/samplerequest.routes.js'
 import notificationRoutes from './routes/notification.routes.js'
+import locationRoutes from './routes/location.routes.js'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -56,6 +57,7 @@ export function createApp() {
   app.use('/api/templates', noStore, templateRoutes)
   app.use('/api/sample-requests', noStore, sampleRequestRoutes)
   app.use('/api/notifications', noStore, notificationRoutes)
+  app.use('/api/location', noStore, locationRoutes)
   app.use(notFoundHandler)
   app.use(errorHandler)
   return app

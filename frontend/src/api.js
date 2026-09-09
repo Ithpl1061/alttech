@@ -15,7 +15,23 @@ async function request(path, options = {}) {
   const isFormData = options.body instanceof FormData
   const headers = { ...options.headers }
   if (!isFormData && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
-  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', ...options, headers })
+
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', ...options, headers })
+  } catch (err) {
+    if (!options._isRetry) {
+      await new Promise((r) => setTimeout(r, 150))
+      return request(path, { ...options, _isRetry: true })
+    }
+    throw err
+  }
+
+  if ([502, 503, 504].includes(response.status) && !options._isRetry) {
+    await new Promise((r) => setTimeout(r, 150))
+    return request(path, { ...options, _isRetry: true })
+  }
+
   const contentType = response.headers.get('content-type') ?? ''
   const body = contentType.includes('application/json') ? await response.json() : await response.text()
   if (!response.ok) throw new ApiError(body?.error || body?.message || 'Request failed.', response.status, body?.errors ?? {})
@@ -190,6 +206,9 @@ export const api = {
   },
   async markAllNotificationsRead() {
     return (await request('/notifications/read-all', { method: 'PATCH' })).success
+  },
+  async reverseGeocode(lat, lng) {
+    return (await request(`/location/reverse-geocode?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)).data.address
   },
   clearCache() { cache.list = null; cache.templatesList = null; cache.sampleRequestsList = null; cache.details.clear() },
 }

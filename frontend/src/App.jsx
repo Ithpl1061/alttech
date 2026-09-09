@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bell, GitMerge, FileText, LayoutTemplate, LogOut, ChevronDown, Activity, Menu, X, CheckCircle2, XCircle, Package } from 'lucide-react'
+import { io } from 'socket.io-client'
 import '@fontsource/ibm-plex-sans/400.css'
 import '@fontsource/ibm-plex-sans/600.css'
 import './App.css'
@@ -474,6 +475,9 @@ function App() {
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [photoViewerUrl, setPhotoViewerUrl] = useState(null)
   const [dateFilter, setDateFilter] = useState({ preset: '', from: '', to: '' })
+  const [toastNotif, setToastNotif] = useState(null)
+  const [isLocating, setIsLocating] = useState(false)
+  const [locError, setLocError] = useState('')
 
   const [appError, setAppError] = useState('')
 
@@ -613,6 +617,96 @@ function App() {
     loadPageData()
     return () => { active = false }
   }, [page, currentUser])
+
+  useEffect(() => {
+    if (!currentUser) return
+    const userId = currentUser._id || currentUser.id
+    if (!userId) return
+
+    const getSocketUrl = () => {
+      if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL.replace(/\/api$/, '')
+      }
+      return window.location.origin.includes(':5173')
+        ? `http://${window.location.hostname}:5000`
+        : window.location.origin
+    }
+
+    const socket = io(getSocketUrl(), {
+      auth: { userId },
+      query: { userId },
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+    })
+
+    socket.on('connect', () => {
+      socket.emit('register', { userId })
+    })
+
+    socket.on('new_notification', (newNotif) => {
+      if (!newNotif) return
+      const notifId = newNotif._id || newNotif.id
+
+      setNotifications((prev) => {
+        if (prev.some((n) => (n._id || n.id) === notifId)) return prev
+        return [newNotif, ...prev]
+      })
+
+      setToastNotif(newNotif)
+    })
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [currentUser])
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocError('Geolocation is not supported by your browser.')
+      return
+    }
+
+    setIsLocating(true)
+    setLocError('')
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords
+          const address = await api.reverseGeocode(latitude, longitude)
+          if (address) {
+            setSampleRequest((c) => ({ ...c, location: address }))
+            setErrors((c) => ({ ...c, location: undefined }))
+          } else {
+            setLocError('Could not retrieve address for your location. Please enter manually.')
+          }
+        } catch (err) {
+          setLocError(err.message || 'Reverse geocoding failed. Please enter location manually.')
+        } finally {
+          setIsLocating(false)
+        }
+      },
+      (error) => {
+        setIsLocating(false)
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            setLocError('Location permission denied. Please allow location access or enter manually.')
+            break
+          case error.POSITION_UNAVAILABLE:
+            setLocError('Location information is unavailable. Please enter location manually.')
+            break
+          case error.TIMEOUT:
+            setLocError('Location request timed out. Please try again or enter location manually.')
+            break
+          default:
+            setLocError('Unable to detect location. Please enter location manually.')
+            break
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    )
+  }
 
   const changeField = (key, value) => { setReport((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [key]: undefined })); setValidated(false); setPreviewReady(false) }
   const changeTest = (index, key, value) => {
@@ -905,8 +999,53 @@ function App() {
     );
   }
 
+  const handleNotificationItemClick = async (n) => {
+    if (!n) return
+    const id = n._id || n.id
+    try {
+      if (!n.read && id) await api.markNotificationRead(id)
+      setNotifications(await api.getNotifications())
+    } catch (e) {
+      console.error(e)
+    }
+
+    const targetReqId = (n.sampleRequestId?._id || n.sampleRequestId || '').toString()
+
+    try {
+      const freshRequests = await api.listSampleRequests({ force: true })
+      setSampleRequests(freshRequests)
+    } catch (e) {
+      console.error(e)
+    }
+
+    if (n.type === 'REPORT_REVIEW') {
+      openReview(n.reportId, targetReqId)
+    } else if (n.type === 'APPROVAL_REVIEW') {
+      setActiveSampleRequestId(targetReqId)
+      setPage('approval-review')
+    } else if (n.link) {
+      setPage(n.link)
+    }
+    setShowNotifications(false)
+    setToastNotif(null)
+  }
+
   const Navbar = () => (
     <header className="premium-header">
+      {toastNotif && (
+        <div className="notif-toast-container">
+          <div className="notif-toast" onClick={() => handleNotificationItemClick(toastNotif)}>
+            <div className="notif-icon-wrap">{getNotificationIcon(toastNotif.title)}</div>
+            <div className="notif-toast-body">
+              <div className="notif-toast-title">{toastNotif.title}</div>
+              <div className="notif-toast-message">{toastNotif.message ? toastNotif.message.replace(' undefined ', ' ') : ''}</div>
+            </div>
+            <button className="notif-toast-close" onClick={(e) => { e.stopPropagation(); setToastNotif(null); }}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="premium-header-inner">
         <div className="premium-header-left">
           <div className="premium-logo-wrap" onClick={() => setPage('workflow')}>
@@ -949,7 +1088,7 @@ function App() {
             </div>
             <div className="notif-list">
               {notifications.length ? notifications.map(n => (
-                <div key={n._id} className={`notif-item ${n.read ? 'read' : 'unread'}`} onClick={async () => { if (!n.read) await api.markNotificationRead(n._id); setNotifications(await api.getNotifications()); if (n.type === 'REPORT_REVIEW') openReview(n.reportId, n.sampleRequestId); else if (n.type === 'APPROVAL_REVIEW') { setActiveSampleRequestId(n.sampleRequestId); setPage('approval-review'); } else if (n.link) setPage(n.link); setShowNotifications(false) }}>
+                <div key={n._id || n.id} className={`notif-item ${n.read ? 'read' : 'unread'}`} onClick={() => handleNotificationItemClick(n)}>
                   <div className="notif-icon-wrap">
                     {getNotificationIcon(n.title)}
                   </div>
@@ -1034,14 +1173,21 @@ function App() {
   }
 
   const getBackendUrl = (path) => {
-    const base = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api$/, '') : 'http://localhost:5000'
-    return base + path
+    if (import.meta.env.VITE_API_URL) {
+      return import.meta.env.VITE_API_URL.replace(/\/api$/, '') + path
+    }
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+    return `http://${host}:5000${path}`
   }
 
-
   if (page === 'approval-review') {
-    const request = sampleRequests.find(r => r.id === activeSampleRequestId)
-    if (!request) return <main className="app-shell reports-page"><Navbar /><section className="reports-panel"><div style={{padding: '24px'}}>Request not found. <button className="validate-button" onClick={() => setPage('workflow')}>Back</button></div></section></main>
+    const targetId = (activeSampleRequestId?._id || activeSampleRequestId || '').toString()
+    const request = sampleRequests.find(r => 
+      r.id?.toString() === targetId || 
+      r._id?.toString() === targetId || 
+      r.data?._id?.toString() === targetId
+    )
+    if (!request) return <main className="app-shell reports-page"><Navbar /><section className="reports-panel"><div style={{padding: '24px'}}>Request not found. <button className="validate-button" onClick={async () => { const fresh = await api.listSampleRequests({ force: true }); setSampleRequests(fresh); }}>Refresh List</button> <button className="back-button" onClick={() => setPage('workflow')}>Back</button></div></section></main>
     return (
       <main className="app-shell reports-page">
         <Navbar />
@@ -1127,13 +1273,97 @@ function App() {
         }} noValidate>
           <fieldset><legend>Request Details</legend><div className="field-grid">
             
-              <Field label="Sample Name" type="text" value={sampleRequest.sampleName} error={errors.sampleName} onChange={(e) => { setSampleRequest(c => ({...c, sampleName: e.target.value})); setErrors(c => ({...c, sampleName: undefined})) }} />
-              <Field label="Sample No." type="text" value={sampleRequest.sampleNo} error={errors.sampleNo} onChange={(e) => { setSampleRequest(c => ({...c, sampleNo: e.target.value})); setErrors(c => ({...c, sampleNo: undefined})) }} />
+              <label className="form-field">
+                <span>Sample Name <b aria-hidden="true">*</b></span>
+                <input
+                  type="text"
+                  list="sample-name-dropdown-options"
+                  value={sampleRequest.sampleName}
+                  placeholder="Type or select from dropdown..."
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setSampleRequest((c) => {
+                      const matchedTemplate = templates.find((t) => t.data?.name?.toLowerCase() === val.toLowerCase())
+                      let newAnalysis = c.analysisRequired
+                      if (matchedTemplate && matchedTemplate.data?.tests && !c.analysisRequired) {
+                        newAnalysis = matchedTemplate.data.tests.map((t) => t.parameter).filter(Boolean).join(', ')
+                      }
+                      return { ...c, sampleName: val, analysisRequired: newAnalysis }
+                    })
+                    setErrors((c) => ({ ...c, sampleName: undefined }))
+                  }}
+                  aria-invalid={Boolean(errors.sampleName)}
+                />
+                <datalist id="sample-name-dropdown-options">
+                  {templates.map((t) => (
+                    <option key={`tpl-${t.id}`} value={t.data?.name}>
+                      {t.data?.name} (Template)
+                    </option>
+                  ))}
+                  {[...new Set(sampleRequests.map((r) => r.data?.sampleName).filter(Boolean))].map((name, idx) => (
+                    <option key={`prev-name-${idx}`} value={name}>
+                      {name} (Recent)
+                    </option>
+                  ))}
+                  <option value="Soil Sample" />
+                  <option value="Drinking Water" />
+                  <option value="Wastewater Sample" />
+                  <option value="Animal Feed" />
+                  <option value="Poultry Sample" />
+                  <option value="Grain Sample" />
+                </datalist>
+                {errors.sampleName && <small role="alert">{errors.sampleName}</small>}
+              </label>
+              <label className="form-field">
+                <span>Sample No. <b aria-hidden="true">*</b></span>
+                <input
+                  type="text"
+                  list="sample-no-dropdown-options"
+                  value={sampleRequest.sampleNo}
+                  placeholder="Type or select Sample No..."
+                  onChange={(e) => {
+                    setSampleRequest((c) => ({ ...c, sampleNo: e.target.value }))
+                    setErrors((c) => ({ ...c, sampleNo: undefined }))
+                  }}
+                  aria-invalid={Boolean(errors.sampleNo)}
+                />
+                <datalist id="sample-no-dropdown-options">
+                  {[...new Set(sampleRequests.map((r) => r.data?.sampleNo || r.data?.sampleIdNo || r.sampleNo || r.sampleIdNo).filter(Boolean))].map((no, idx) => (
+                    <option key={`prev-no-${idx}`} value={no} />
+                  ))}
+                </datalist>
+                {errors.sampleNo && <small role="alert">{errors.sampleNo}</small>}
+              </label>
               <Field label="Customer Name" type="text" value={sampleRequest.customerName} error={errors.customerName} onChange={(e) => { setSampleRequest(c => ({...c, customerName: e.target.value})); setErrors(c => ({...c, customerName: undefined})) }} />
               <Field label="Sent By" type="text" value={sampleRequest.sentBy} error={errors.sentBy} onChange={(e) => { setSampleRequest(c => ({...c, sentBy: e.target.value})); setErrors(c => ({...c, sentBy: undefined})) }} />
               <Field label="Approved By" type="text" value={sampleRequest.approvedBy} error={errors.approvedBy} onChange={(e) => { setSampleRequest(c => ({...c, approvedBy: e.target.value})); setErrors(c => ({...c, approvedBy: undefined})) }} />
               <Field label="Analysis Required (comma separated)" type="text" value={sampleRequest.analysisRequired} error={errors.analysisRequired} onChange={(e) => { setSampleRequest(c => ({...c, analysisRequired: e.target.value})); setErrors(c => ({...c, analysisRequired: undefined})) }} />
-              <Field label="Location" type="text" value={sampleRequest.location} error={errors.location} onChange={(e) => { setSampleRequest(c => ({...c, location: e.target.value})); setErrors(c => ({...c, location: undefined})) }} />
+              <div className="form-field location-field-wrap">
+                <div className="location-label-row">
+                  <span>Location <b aria-hidden="true">*</b></span>
+                  <button
+                    type="button"
+                    className="use-location-btn"
+                    onClick={handleUseCurrentLocation}
+                    disabled={isLocating}
+                  >
+                    {isLocating ? '📍 Detecting…' : '📍 Use Current Location'}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={sampleRequest.location}
+                  onChange={(e) => {
+                    setSampleRequest(c => ({ ...c, location: e.target.value }))
+                    setErrors(c => ({ ...c, location: undefined }))
+                    setLocError('')
+                  }}
+                  aria-invalid={Boolean(errors.location)}
+                  placeholder="Enter location or click Use Current Location"
+                />
+                {errors.location && <small role="alert">{errors.location}</small>}
+                {locError && <small className="location-error-msg" role="alert">{locError}</small>}
+              </div>
               <Field label="Sample Request Date *" type="date" value={sampleRequest.sampleRequestDate} error={errors.sampleRequestDate} onChange={(e) => { setSampleRequest(c => ({...c, sampleRequestDate: e.target.value})); setErrors(c => ({...c, sampleRequestDate: undefined})) }} />
               <Field label="Report Date *" type="date" value={sampleRequest.reportDate} error={errors.reportDate} onChange={(e) => { setSampleRequest(c => ({...c, reportDate: e.target.value})); setErrors(c => ({...c, reportDate: undefined})) }} />
               <Field label="Remark *" type="text" value={sampleRequest.remark} error={errors.remark} onChange={(e) => { setSampleRequest(c => ({...c, remark: e.target.value})); setErrors(c => ({...c, remark: undefined})) }} />

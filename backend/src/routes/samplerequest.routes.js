@@ -7,6 +7,7 @@ import User from '../models/User.js'
 import { requireAuth } from '../middleware/auth.js'
 import { uploadPhoto } from '../middleware/upload.js'
 import ExcelJS from 'exceljs'
+import { emitNotificationToUser } from '../socket.js'
 
 const router = express.Router()
 
@@ -89,9 +90,9 @@ router.post('/', async (req, res) => {
     })
     
     await request.save()
-    const managers = await User.find({ role: 'Manager' }).select('_id')
+    const managers = await User.find({ role: { $regex: /^manager$/i } }).select('_id')
     if (managers.length > 0) {
-      await Notification.insertMany(managers.map(m => ({
+      const createdNotifs = await Notification.insertMany(managers.map(m => ({
         userId: m._id,
         title: 'Sample Request Pending Approval',
         message: `Sample No.: ${request.sampleNo || 'N/A'}\nCustomer: ${request.customerName || 'N/A'}\nSample: ${request.sampleName || 'N/A'}\nAnalysis: ${(request.analysisRequired || []).join(', ') || 'N/A'}\nSent By: ${request.sentBy || 'N/A'}`,
@@ -99,6 +100,7 @@ router.post('/', async (req, res) => {
         type: 'APPROVAL_REVIEW',
         sampleRequestId: request._id
       })))
+      createdNotifs.forEach(n => emitNotificationToUser(n.userId, n))
     }
     res.status(201).json({ success: true, data: { sampleRequest: request } })
   } catch (error) {
@@ -129,12 +131,13 @@ router.patch('/:id/approve', async (req, res) => {
     })
     
     await request.save()
-    await Notification.create({
+    const notif = await Notification.create({
       userId: request.ownerId,
       title: 'Request Approved',
       message: `Your Sample Pickup Request ${request.sampleNo || request.sampleIdNo} has been approved. ${remarks ? `Remarks: ${remarks}` : ''}`,
       link: 'workflow'
     })
+    emitNotificationToUser(notif.userId, notif)
     res.json({ success: true, data: { sampleRequest: request } })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
@@ -162,12 +165,13 @@ router.patch('/:id/reject', async (req, res) => {
     })
     
     await request.save()
-    await Notification.create({
+    const notif = await Notification.create({
       userId: request.ownerId,
       title: 'Request Rejected',
       message: `Your Sample Pickup Request ${request.sampleNo || request.sampleIdNo} has been rejected. ${remarks ? `Remarks: ${remarks}` : ''}`,
       link: 'workflow'
     })
+    emitNotificationToUser(notif.userId, notif)
     res.json({ success: true, data: { sampleRequest: request } })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
@@ -321,7 +325,7 @@ router.patch('/:id/submit-review', async (req, res) => {
 
     const managers = await User.find({ role: { $regex: /^manager$/i } }).select('_id')
     if (managers.length > 0) {
-      await Notification.insertMany(managers.map(m => ({
+      const createdNotifs = await Notification.insertMany(managers.map(m => ({
         userId: m._id,
         title: 'Report Ready for Review',
         message: `Sample Request ${request.sampleNo || request.sampleIdNo || ''} (${request.customerName}) has been submitted for review.`,
@@ -330,6 +334,7 @@ router.patch('/:id/submit-review', async (req, res) => {
         sampleRequestId: request._id,
         reportId: request.linkedReportId
       })))
+      createdNotifs.forEach(n => emitNotificationToUser(n.userId, n))
     }
     
     res.json({ success: true, data: { sampleRequest: request } })
@@ -382,12 +387,13 @@ router.patch('/:id/review', async (req, res) => {
     })
     await request.save()
 
-    await Notification.create({
+    const notif = await Notification.create({
       userId: request.ownerId,
       title: 'Report Reviewed',
       message: `Your report for Sample Request ${request.sampleNo || request.sampleIdNo} has been reviewed and approved.`,
       link: 'workflow'
     })
+    emitNotificationToUser(notif.userId, notif)
     
     res.json({ success: true, data: { sampleRequest: request } })
   } catch (error) {
