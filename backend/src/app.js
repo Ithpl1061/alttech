@@ -23,12 +23,13 @@ export function createApp() {
   app.disable('x-powered-by')
   app.set('trust proxy', config.isProduction ? 1 : 0)
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
-  const allowedOrigins = new Set(config.clientOrigin.split(',').map((origin) => origin.trim()).filter(Boolean))
+  const allowedOrigins = new Set(config.clientOrigin.split(',').map((origin) => origin.trim().replace(/\/$/, '')).filter(Boolean))
   app.use(cors({
     origin(origin, callback) {
-      if (!config.isProduction) return callback(null, true)
-      if (!origin || allowedOrigins.has(origin)) return callback(null, true)
-      return callback(new Error('Origin is not allowed by CORS.'))
+      if (!config.isProduction || !origin) return callback(null, true)
+      const cleanOrigin = origin.replace(/\/$/, '')
+      if (allowedOrigins.has(cleanOrigin) || allowedOrigins.has('*') || cleanOrigin.endsWith('.netlify.app')) return callback(null, true)
+      return callback(null, cleanOrigin)
     },
     credentials: true,
   }))
@@ -43,7 +44,7 @@ export function createApp() {
     store: MongoStore.create({ mongoUrl: config.mongodbUri, collectionName: 'sessions' }),
     cookie: {
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: config.isProduction ? 'none' : 'lax',
       secure: config.isProduction,
       maxAge: 1000 * 60 * 60 * 8,
     },

@@ -1,4 +1,5 @@
-const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
+const rawApiUrl = (import.meta.env.VITE_API_URL ?? '/api').trim().replace(/\/$/, '')
+const API_BASE_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : (rawApiUrl === '' ? '/api' : `${rawApiUrl}/api`)
 
 const cache = { list: null, details: new Map() }
 
@@ -21,10 +22,10 @@ async function request(path, options = {}) {
     response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', ...options, headers })
   } catch (err) {
     if (!options._isRetry) {
-      await new Promise((r) => setTimeout(r, 150))
+      await new Promise((r) => setTimeout(r, 1000))
       return request(path, { ...options, _isRetry: true })
     }
-    throw err
+    throw new ApiError('Unable to connect to server. Please check your connection or wait a moment for the server to respond.', 0)
   }
 
   if ([502, 503, 504].includes(response.status) && !options._isRetry) {
