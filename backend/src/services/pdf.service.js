@@ -1,12 +1,24 @@
 import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
 import { chromium } from 'playwright'
 import { config } from '../config/env.js'
 
-const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
-const reportLogoPath = path.join(serverRoot, 'frontend', 'src', 'assets', 'Alltech-Logo.avif')
-const signaturePath = path.join(serverRoot, 'frontend', 'src', 'assets', '21aec37710d94a55a24d470aa9cb64cb_gemini-3.1-flash-image-preview.jpg')
+const serviceDir = path.dirname(fileURLToPath(import.meta.url))
+const backendAssetsDir = path.join(serviceDir, '..', 'assets')
+const frontendAssetsDir = path.resolve(serviceDir, '../../..', 'frontend', 'src', 'assets')
+
+function resolveAssetPath(fileName) {
+  const bPath = path.join(backendAssetsDir, fileName)
+  if (existsSync(bPath)) return bPath
+  const fPath = path.join(frontendAssetsDir, fileName)
+  if (existsSync(fPath)) return fPath
+  return bPath
+}
+
+const reportLogoPath = resolveAssetPath('Alltech-Logo.avif')
+const signaturePath = resolveAssetPath('21aec37710d94a55a24d470aa9cb64cb_gemini-3.1-flash-image-preview.jpg')
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]))
@@ -19,8 +31,15 @@ function formatDate(value) {
 }
 
 async function dataUri(filePath, mimeType) {
-  const content = await readFile(filePath)
-  return `data:${mimeType};base64,${content.toString('base64')}`
+  try {
+    if (existsSync(filePath)) {
+      const content = await readFile(filePath)
+      return `data:${mimeType};base64,${content.toString('base64')}`
+    }
+  } catch (err) {
+    console.error('Failed reading asset:', filePath, err.message)
+  }
+  return ''
 }
 
 function reportMarkup(report, logoUri, signatureUri) {
@@ -32,7 +51,11 @@ function reportMarkup(report, logoUri, signatureUri) {
 
 export async function generateReportPdf(report) {
   const [logoUri, signatureUri] = await Promise.all([dataUri(reportLogoPath, 'image/avif'), dataUri(signaturePath, 'image/jpeg')])
-  const browser = await chromium.launch({ headless: true, ...(config.playwrightExecutablePath ? { executablePath: config.playwrightExecutablePath } : {}) })
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    ...(config.playwrightExecutablePath ? { executablePath: config.playwrightExecutablePath } : {})
+  })
   try {
     const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 })
     await page.setContent(reportMarkup(report, logoUri, signatureUri), { waitUntil: 'load' })
