@@ -24,6 +24,26 @@ router.post('/signup', asyncHandler(async (req, res) => {
   return res.status(201).json({ success: true, data: { user: publicUser(user) } })
 }))
 
+router.post('/create-manager', requireAuth, asyncHandler(async (req, res) => {
+  const currentUser = await User.findById(req.userId)
+  if (!currentUser || currentUser.role?.toLowerCase() !== 'manager') {
+    return res.status(403).json({ success: false, message: 'Only Managers can create new Manager accounts.' })
+  }
+
+  const { errors, value } = validateSignup(req.body)
+  if (Object.keys(errors).length) return res.status(400).json({ success: false, message: 'Validation failed.', errors })
+
+  const existing = await User.findOne({ email: value.email.toLowerCase() })
+  if (existing) {
+    return res.status(400).json({ success: false, message: 'Email address is already registered.', errors: { email: 'Email address is already in use.' } })
+  }
+
+  const passwordHash = await bcrypt.hash(value.password, BCRYPT_ROUNDS)
+  const managerUser = await User.create({ fullName: value.fullName, email: value.email, passwordHash, role: 'Manager' })
+
+  return res.status(201).json({ success: true, data: { user: publicUser(managerUser) } })
+}))
+
 router.post('/login', asyncHandler(async (req, res) => {
   const { errors, value } = validateLogin(req.body)
   if (Object.keys(errors).length) return res.status(400).json({ success: false, message: 'Validation failed.', errors })

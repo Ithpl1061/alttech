@@ -45,6 +45,7 @@ function reportForClient(report) {
 export const api = {
   async me() { return (await request('/auth/me')).data.user },
   async signup(values) { return (await request('/auth/signup', { method: 'POST', body: JSON.stringify(values) })).data.user },
+  async createManager(values) { return (await request('/auth/create-manager', { method: 'POST', body: JSON.stringify(values) })).data.user },
   async login(values) { return (await request('/auth/login', { method: 'POST', body: JSON.stringify(values) })).data.user },
   async logout() { return (await request('/auth/logout', { method: 'POST' })).data },
   async listReports({ force = false, from, to } = {}) {

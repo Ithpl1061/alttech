@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, GitMerge, FileText, LayoutTemplate, LogOut, ChevronDown, Activity, Menu, X, CheckCircle2, XCircle, Package } from 'lucide-react'
 import { io } from 'socket.io-client'
 import '@fontsource/ibm-plex-sans/400.css'
@@ -313,6 +313,92 @@ function AuthPage({ mode, onSwitch, onLogin, onSignup }) {
   </main>
 }
 
+function AddManagerModal({ isOpen, onClose }) {
+  const [values, setValues] = useState({ fullName: '', email: '', password: '', confirmPassword: '' })
+  const [errors, setErrors] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [successMsg, setSuccessMsg] = useState('')
+  const modalContainerRef = useRef(null)
+
+  if (!isOpen) return null
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setErrors({})
+    setSuccessMsg('')
+
+    const nextErrors = {}
+    if (!values.fullName.trim()) nextErrors.fullName = 'Full name is required.'
+    if (!values.email.trim()) nextErrors.email = 'Email is required.'
+    else if (!/^\S+@\S+\.\S+$/.test(values.email)) nextErrors.email = 'Enter a valid email address.'
+    if (!values.password) nextErrors.password = 'Password is required.'
+    if (!values.confirmPassword) nextErrors.confirmPassword = 'Please confirm password.'
+    else if (values.password !== values.confirmPassword) nextErrors.confirmPassword = 'Passwords do not match.'
+
+    if (Object.keys(nextErrors).length) {
+      nextErrors.form = 'Please complete all required fields.'
+      setErrors(nextErrors)
+      if (modalContainerRef.current) modalContainerRef.current.scrollTop = 0
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      await api.createManager(values)
+      setSuccessMsg(`Manager account "${values.fullName}" created successfully!`)
+      setValues({ fullName: '', email: '', password: '', confirmPassword: '' })
+      if (modalContainerRef.current) modalContainerRef.current.scrollTop = 0
+    } catch (err) {
+      setErrors(err.errors && Object.keys(err.errors).length ? err.errors : { form: err.message || 'Failed to create manager account.' })
+      if (modalContainerRef.current) modalContainerRef.current.scrollTop = 0
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', boxSizing: 'border-box' }}>
+      <div ref={modalContainerRef} style={{ background: '#fff', borderRadius: '8px', maxWidth: '440px', width: '100%', padding: '16px 20px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#1e293b' }}>Add New Manager Account</h2>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '4px' }}><X size={18} /></button>
+        </div>
+        <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px', lineHeight: 1.3 }}>Create a separate Manager account with full approval and notification access.</p>
+        
+        {successMsg && <div style={{ background: '#dcfce7', color: '#15803d', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px', fontWeight: 600 }}>{successMsg}</div>}
+        {errors.form && <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px' }}>{errors.form}</div>}
+
+        <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="auth-field" style={{ marginBottom: 0 }}>
+            <label htmlFor="mgr-name" style={{ fontSize: '12px', marginBottom: '2px', display: 'block' }}>Full Name *</label>
+            <input id="mgr-name" type="text" style={{ height: '34px', padding: '0 10px', fontSize: '13px' }} value={values.fullName} onChange={(e) => { setValues(v => ({ ...v, fullName: e.target.value })); setErrors(e => ({ ...e, fullName: undefined })); setSuccessMsg(''); }} />
+            {errors.fullName && <small role="alert" style={{ fontSize: '11px', color: '#c5352b' }}>{errors.fullName}</small>}
+          </div>
+
+          <div className="auth-field" style={{ marginBottom: 0 }}>
+            <label htmlFor="mgr-email" style={{ fontSize: '12px', marginBottom: '2px', display: 'block' }}>Email Address *</label>
+            <input id="mgr-email" type="email" style={{ height: '34px', padding: '0 10px', fontSize: '13px' }} value={values.email} onChange={(e) => { setValues(v => ({ ...v, email: e.target.value })); setErrors(e => ({ ...e, email: undefined })); setSuccessMsg(''); }} />
+            {errors.email && <small role="alert" style={{ fontSize: '11px', color: '#c5352b' }}>{errors.email}</small>}
+          </div>
+
+          <div style={{ marginBottom: 0 }}>
+            <AuthPasswordField id="mgr-password" label="Password *" value={values.password} error={errors.password} onChange={(e) => { setValues(v => ({ ...v, password: e.target.value })); setErrors(e => ({ ...e, password: undefined })); setSuccessMsg(''); }} />
+          </div>
+
+          <div style={{ marginBottom: 0 }}>
+            <AuthPasswordField id="mgr-confirm-password" label="Confirm Password *" value={values.confirmPassword} error={errors.confirmPassword} onChange={(e) => { setValues(v => ({ ...v, confirmPassword: e.target.value })); setErrors(e => ({ ...e, confirmPassword: undefined })); setSuccessMsg(''); }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+            <button type="button" onClick={onClose} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', color: '#475569', fontWeight: 600, fontSize: '13px' }}>Close</button>
+            <button type="submit" disabled={submitting} className="premium-submit-btn" style={{ padding: '6px 16px', width: 'auto', fontSize: '13px', height: '34px' }}>{submitting ? 'Creating...' : 'Create Manager Account'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 
 const templateTestFields = ['parameter', 'method', 'unit', 'remark']
 
@@ -478,6 +564,7 @@ function App() {
   const [toastNotif, setToastNotif] = useState(null)
   const [isLocating, setIsLocating] = useState(false)
   const [locError, setLocError] = useState('')
+  const [showAddManagerModal, setShowAddManagerModal] = useState(false)
 
   const [appError, setAppError] = useState('')
 
@@ -1031,95 +1118,99 @@ function App() {
   }
 
   const Navbar = () => (
-    <header className="premium-header">
-      {toastNotif && (
-        <div className="notif-toast-container">
-          <div className="notif-toast" onClick={() => handleNotificationItemClick(toastNotif)}>
-            <div className="notif-icon-wrap">{getNotificationIcon(toastNotif.title)}</div>
-            <div className="notif-toast-body">
-              <div className="notif-toast-title">{toastNotif.title}</div>
-              <div className="notif-toast-message">{toastNotif.message ? toastNotif.message.replace(' undefined ', ' ') : ''}</div>
+    <>
+      <header className="premium-header">
+        {toastNotif && (
+          <div className="notif-toast-container">
+            <div className="notif-toast" onClick={() => handleNotificationItemClick(toastNotif)}>
+              <div className="notif-icon-wrap">{getNotificationIcon(toastNotif.title)}</div>
+              <div className="notif-toast-body">
+                <div className="notif-toast-title">{toastNotif.title}</div>
+                <div className="notif-toast-message">{toastNotif.message ? toastNotif.message.replace(' undefined ', ' ') : ''}</div>
+              </div>
+              <button className="notif-toast-close" onClick={(e) => { e.stopPropagation(); setToastNotif(null); }}>
+                <X size={16} />
+              </button>
             </div>
-            <button className="notif-toast-close" onClick={(e) => { e.stopPropagation(); setToastNotif(null); }}>
-              <X size={16} />
+          </div>
+        )}
+        <div className="premium-header-inner">
+          <div className="premium-header-left">
+            <div className="premium-logo-wrap" onClick={() => setPage('workflow')}>
+              <div className="premium-logo-glow"></div>
+              <HomeBrand />
+            </div>
+            <div className="premium-header-title">
+              <h1>
+                Laboratory Test Report System
+                <span className="premium-pulse-dot">
+                  <span className="premium-pulse-ping"></span>
+                  <span className="premium-pulse-core"></span>
+                </span>
+              </h1>
+              <p>Internal Laboratory Application</p>
+            </div>
+          </div>
+
+          <div className="premium-header-center">
+            <div className="premium-profile">
+              <div className="premium-avatar">
+                {currentUser?.fullName?.substring(0, 2).toUpperCase() || 'U'}
+              </div>
+              <div className="premium-profile-text">
+                <span className="premium-username">{currentUser?.fullName}</span>
+                <span className="premium-role">{currentUser?.role || 'Staff'}</span>
+              </div>
+              <ChevronDown size={14} color="#94a3b8" />
+            </div>
+
+            <button className="premium-bell" onClick={() => setShowNotifications(!showNotifications)}>
+              <Bell className="premium-bell-icon" />
+              {notifications.filter(n => !n.read).length > 0 && <span className="premium-bell-badge">{notifications.filter(n => !n.read).length}</span>}
             </button>
-          </div>
-        </div>
-      )}
-      <div className="premium-header-inner">
-        <div className="premium-header-left">
-          <div className="premium-logo-wrap" onClick={() => setPage('workflow')}>
-            <div className="premium-logo-glow"></div>
-            <HomeBrand />
-          </div>
-          <div className="premium-header-title">
-            <h1>
-              Laboratory Test Report System
-              <span className="premium-pulse-dot">
-                <span className="premium-pulse-ping"></span>
-                <span className="premium-pulse-core"></span>
-              </span>
-            </h1>
-            <p>Internal Laboratory Application</p>
-          </div>
-        </div>
-
-        <div className="premium-header-center">
-          <div className="premium-profile">
-            <div className="premium-avatar">
-              {currentUser?.fullName?.substring(0, 2).toUpperCase() || 'U'}
-            </div>
-            <div className="premium-profile-text">
-              <span className="premium-username">{currentUser?.fullName}</span>
-              <span className="premium-role">{currentUser?.role || 'Staff'}</span>
-            </div>
-            <ChevronDown size={14} color="#94a3b8" />
-          </div>
-
-          <button className="premium-bell" onClick={() => setShowNotifications(!showNotifications)}>
-            <Bell className="premium-bell-icon" />
-            {notifications.filter(n => !n.read).length > 0 && <span className="premium-bell-badge">{notifications.filter(n => !n.read).length}</span>}
-          </button>
-          
-          {showNotifications && <div className="notif-dropdown">
-            <div className="notif-header">
-              <strong>Notifications</strong>
-              <button className="notif-mark-read" onClick={async () => { await api.markAllNotificationsRead(); setNotifications(await api.getNotifications()) }}>Mark all read</button>
-            </div>
-            <div className="notif-list">
-              {notifications.length ? notifications.map(n => (
-                <div key={n._id || n.id} className={`notif-item ${n.read ? 'read' : 'unread'}`} onClick={() => handleNotificationItemClick(n)}>
-                  <div className="notif-icon-wrap">
-                    {getNotificationIcon(n.title)}
-                  </div>
-                  <div className="notif-content">
-                    <div className="notif-title-row">
-                      <span className="notif-title">{n.title}</span>
-                      {!n.read && <span className="notif-dot"></span>}
+            
+            {showNotifications && <div className="notif-dropdown">
+              <div className="notif-header">
+                <strong>Notifications</strong>
+                <button className="notif-mark-read" onClick={async () => { await api.markAllNotificationsRead(); setNotifications(await api.getNotifications()) }}>Mark all read</button>
+              </div>
+              <div className="notif-list">
+                {notifications.length ? notifications.map(n => (
+                  <div key={n._id || n.id} className={`notif-item ${n.read ? 'read' : 'unread'}`} onClick={() => handleNotificationItemClick(n)}>
+                    <div className="notif-icon-wrap">
+                      {getNotificationIcon(n.title)}
                     </div>
-                    <div className="notif-message">{n.message ? n.message.replace(' undefined ', ' ') : ''}</div>
-                    {n.createdAt && <div className="notif-time">{getRelativeTime(n.createdAt)}</div>}
+                    <div className="notif-content">
+                      <div className="notif-title-row">
+                        <span className="notif-title">{n.title}</span>
+                        {!n.read && <span className="notif-dot"></span>}
+                      </div>
+                      <div className="notif-message">{n.message ? n.message.replace(' undefined ', ' ') : ''}</div>
+                      {n.createdAt && <div className="notif-time">{getRelativeTime(n.createdAt)}</div>}
+                    </div>
                   </div>
-                </div>
-              )) : <div className="notif-empty">No notifications</div>}
-            </div>
-          </div>}
-        </div>
+                )) : <div className="notif-empty">No notifications</div>}
+              </div>
+            </div>}
+          </div>
 
-        <div className="premium-header-right">
-            <button className="mobile-menu-toggle" onClick={() => setShowMobileMenu(!showMobileMenu)}>
-              {showMobileMenu ? <X size={24} /> : <Menu size={24} />}
-            </button>
-            <div className={`premium-nav-links ${showMobileMenu ? 'mobile-open' : ''}`}>
-              <NavButton icon={<Activity size={16} />} label="Workflow" onClick={() => { setPage('workflow'); setShowMobileMenu(false); }} active={page === 'workflow'} />
-              <NavButton icon={<FileText size={16} />} label="Reports" onClick={() => { setPage('list'); setShowMobileMenu(false); }} active={page === 'list'} />
-              {currentUser?.role?.toLowerCase() !== 'manager' && <NavButton icon={<LayoutTemplate size={16} />} label="Templates" onClick={() => { setPage('templates'); setShowMobileMenu(false); }} active={page === 'template-form' || page === 'templates'} />}
-              <div className="premium-nav-divider"></div>
-              <NavButton icon={<LogOut size={16} />} label="Logout" variant="danger" onClick={logout} />
-            </div>
+          <div className="premium-header-right">
+              <button className="mobile-menu-toggle" onClick={() => setShowMobileMenu(!showMobileMenu)}>
+                {showMobileMenu ? <X size={24} /> : <Menu size={24} />}
+              </button>
+              <div className={`premium-nav-links ${showMobileMenu ? 'mobile-open' : ''}`}>
+                <NavButton icon={<Activity size={16} />} label="Workflow" onClick={() => { setPage('workflow'); setShowMobileMenu(false); }} active={page === 'workflow'} />
+                <NavButton icon={<FileText size={16} />} label="Reports" onClick={() => { setPage('list'); setShowMobileMenu(false); }} active={page === 'list'} />
+                {currentUser?.role?.toLowerCase() !== 'manager' && <NavButton icon={<LayoutTemplate size={16} />} label="Templates" onClick={() => { setPage('templates'); setShowMobileMenu(false); }} active={page === 'template-form' || page === 'templates'} />}
+                {currentUser?.role?.toLowerCase() === 'manager' && <NavButton icon={<GitMerge size={16} />} label="+ Add Manager" onClick={() => { setShowAddManagerModal(true); setShowMobileMenu(false); }} />}
+                <div className="premium-nav-divider"></div>
+                <NavButton icon={<LogOut size={16} />} label="Logout" variant="danger" onClick={logout} />
+              </div>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      <AddManagerModal isOpen={showAddManagerModal} onClose={() => setShowAddManagerModal(false)} />
+    </>
   )
 
   if (page === 'list') {

@@ -14,10 +14,12 @@ export default defineConfig({
         agent: false,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, res) => {
-            console.error('[vite proxy error]', err.message)
+            if (err.code !== 'ECONNREFUSED') {
+              console.error('[vite proxy error]', err.message)
+            }
             if (res && !res.headersSent && typeof res.writeHead === 'function') {
               res.writeHead(504, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ success: false, message: 'Connection reset. Please try again.' }))
+              res.end(JSON.stringify({ success: false, message: 'Backend service unavailable. Please try again.' }))
             }
           })
         },

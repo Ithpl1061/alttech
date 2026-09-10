@@ -8,12 +8,15 @@ const app = createApp()
 const server = http.createServer(app)
 initSocket(server)
 
+server.keepAliveTimeout = 65000
+server.headersTimeout = 66000
+
+server.listen(config.port, '0.0.0.0', () => {
+  console.log(`Laboratory API listening on port ${config.port}`)
+})
+
 try {
   await connectDatabase(config.mongodbUri)
-  server.listen(config.port, '0.0.0.0', () => console.log(`Laboratory API listening on port ${config.port}`))
-  server.keepAliveTimeout = 65000
-  server.headersTimeout = 66000
 } catch (error) {
-  console.error('Unable to start Laboratory API:', error)
-  process.exitCode = 1
+  console.error('Unable to connect to MongoDB:', error)
 }
