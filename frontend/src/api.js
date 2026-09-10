@@ -1,5 +1,16 @@
-const rawApiUrl = (import.meta.env.VITE_API_URL ?? '/api').trim().replace(/\/$/, '')
-const API_BASE_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : (rawApiUrl === '' ? '/api' : `${rawApiUrl}/api`)
+const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL
+  if (envUrl && envUrl.trim() !== '') {
+    const raw = envUrl.trim().replace(/\/$/, '')
+    return raw.endsWith('/api') ? raw : `${raw}/api`
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.includes('netlify')) {
+    return 'https://alttech.onrender.com/api'
+  }
+  return '/api'
+}
+
+const API_BASE_URL = getApiBaseUrl()
 
 const cache = { list: null, details: new Map() }
 
