@@ -35,7 +35,13 @@ async function request(path, options = {}) {
 
   const contentType = response.headers.get('content-type') ?? ''
   const body = contentType.includes('application/json') ? await response.json() : await response.text()
-  if (!response.ok) throw new ApiError(body?.error || body?.message || 'Request failed.', response.status, body?.errors ?? {})
+  if (!response.ok) {
+    const errMsg = typeof body === 'object' && body ? (body.error || body.message || 'Request failed.') : 'Request failed.'
+    throw new ApiError(errMsg, response.status, body?.errors ?? {})
+  }
+  if (typeof body !== 'object' || body === null) {
+    throw new ApiError('Cannot connect to backend API. Please set VITE_API_URL in Netlify Environment Variables.', 500)
+  }
   return body
 }
 
@@ -44,10 +50,26 @@ function reportForClient(report) {
 }
 
 export const api = {
-  async me() { return (await request('/auth/me')).data.user },
-  async signup(values) { return (await request('/auth/signup', { method: 'POST', body: JSON.stringify(values) })).data.user },
-  async createManager(values) { return (await request('/auth/create-manager', { method: 'POST', body: JSON.stringify(values) })).data.user },
-  async login(values) { return (await request('/auth/login', { method: 'POST', body: JSON.stringify(values) })).data.user },
+  async me() {
+    const res = await request('/auth/me')
+    if (!res?.data?.user) throw new ApiError('Authentication required.', 401)
+    return res.data.user
+  },
+  async signup(values) {
+    const res = await request('/auth/signup', { method: 'POST', body: JSON.stringify(values) })
+    if (!res?.data?.user) throw new ApiError(res?.message || 'Signup failed.', 400)
+    return res.data.user
+  },
+  async createManager(values) {
+    const res = await request('/auth/create-manager', { method: 'POST', body: JSON.stringify(values) })
+    if (!res?.data?.user) throw new ApiError(res?.message || 'Manager creation failed.', 400)
+    return res.data.user
+  },
+  async login(values) {
+    const res = await request('/auth/login', { method: 'POST', body: JSON.stringify(values) })
+    if (!res?.data?.user) throw new ApiError(res?.message || 'Login failed.', 400)
+    return res.data.user
+  },
   async logout() { return (await request('/auth/logout', { method: 'POST' })).data },
   async listReports({ force = false, from, to } = {}) {
     const isFiltered = from || to
