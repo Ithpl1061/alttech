@@ -711,8 +711,12 @@ function App() {
     if (!userId) return
 
     const getSocketUrl = () => {
-      if (import.meta.env.VITE_API_URL) {
-        return import.meta.env.VITE_API_URL.replace(/\/api$/, '')
+      const envUrl = import.meta.env.VITE_API_URL
+      if (envUrl && envUrl.trim() !== '') {
+        return envUrl.trim().replace(/\/$/, '').replace(/\/api$/, '')
+      }
+      if (typeof window !== 'undefined' && window.location.hostname.includes('netlify')) {
+        return 'https://alttech.onrender.com'
       }
       return window.location.origin.includes(':5173')
         ? `http://${window.location.hostname}:5000`
@@ -1285,11 +1289,16 @@ function App() {
   }
 
   const getBackendUrl = (path) => {
-    if (import.meta.env.VITE_API_URL) {
-      return import.meta.env.VITE_API_URL.replace(/\/api$/, '') + path
+    const envUrl = import.meta.env.VITE_API_URL
+    const cleanPath = path ? (path.startsWith('/') ? path : `/${path}`) : ''
+    if (envUrl && envUrl.trim() !== '') {
+      return envUrl.trim().replace(/\/$/, '').replace(/\/api$/, '') + cleanPath
+    }
+    if (typeof window !== 'undefined' && window.location.hostname.includes('netlify')) {
+      return `https://alttech.onrender.com${cleanPath}`
     }
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-    return `http://${host}:5000${path}`
+    return `http://${host}:5000${cleanPath}`
   }
 
   if (page === 'approval-review') {
