@@ -1389,3 +1389,11 @@ small { color: #b5271f; font-size: 12px; }
   margin-top: 4px;
   display: block;
 }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  .home-navbar, .preview-toolbar, .api-error, button, .mobile-menu-toggle, .notif-dropdown { display: none !important; }
+  .app-shell, .preview-page, .preview-panel { padding: 0 !important; margin: 0 !important; background: #fff !important; min-height: auto !important; border: none !important; box-shadow: none !important; }
+  .page-frame { box-shadow: none !important; margin: 0 !important; padding: 0 !important; border: none !important; }
+  .figma-report { width: 100% !important; height: auto !important; margin: 0 !important; padding: 0 !important; page-break-after: avoid !important; }
+}

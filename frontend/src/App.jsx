@@ -849,7 +849,28 @@ function App() {
     }
   }
 
-  const downloadPdf = async () => { if (!activeReportId) return; setPdfLoading(true); setAppError(''); try { const { blob, filename } = await api.downloadPdf(activeReportId); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } catch (error) { setAppError(error.message) } finally { setPdfLoading(false) } }
+  const downloadPdf = async () => {
+    if (!activeReportId) {
+      window.print()
+      return
+    }
+    setPdfLoading(true)
+    setAppError('')
+    try {
+      const { blob, filename } = await api.downloadPdf(activeReportId)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.warn('Server PDF generation unavailable, falling back to browser print:', error)
+      window.print()
+    } finally {
+      setPdfLoading(false)
+    }
+  }
 
   const changeTemplateField = (key, value) => { setTemplate((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [key]: undefined })); }
   const changeTemplateTest = (index, key, value) => {
