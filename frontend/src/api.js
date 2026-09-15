@@ -23,25 +23,39 @@ class ApiError extends Error {
   }
 }
 
-async function request(path, options = {}) {
+async function request(path, options = {}, retryCount = 0) {
   const isFormData = options.body instanceof FormData
   const headers = { ...options.headers }
   if (!isFormData && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
 
+  const isAuthMe = path === '/auth/me'
+  const MAX_RETRIES = options._maxRetries ?? (isAuthMe ? 2 : 1)
+  const timeoutMs = options.timeout ?? (isAuthMe ? 8000 : 7000)
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
   let response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', ...options, headers })
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: 'include',
+      ...options,
+      headers,
+      signal: options.signal || controller.signal,
+    })
+    clearTimeout(timeoutId)
   } catch (err) {
-    if (!options._isRetry) {
-      await new Promise((r) => setTimeout(r, 1000))
-      return request(path, { ...options, _isRetry: true })
+    clearTimeout(timeoutId)
+    if (retryCount < MAX_RETRIES && err.name !== 'AbortError') {
+      await new Promise((r) => setTimeout(r, 400))
+      return request(path, options, retryCount + 1)
     }
     throw new ApiError('Unable to connect to server. Please check your connection or wait a moment for the server to respond.', 0)
   }
 
-  if ([502, 503, 504].includes(response.status) && !options._isRetry) {
-    await new Promise((r) => setTimeout(r, 150))
-    return request(path, { ...options, _isRetry: true })
+  if ([502, 503, 504].includes(response.status) && retryCount < MAX_RETRIES) {
+    await new Promise((r) => setTimeout(r, 600))
+    return request(path, options, retryCount + 1)
   }
 
   const contentType = response.headers.get('content-type') ?? ''

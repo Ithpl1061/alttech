@@ -662,22 +662,16 @@ function App() {
       if (active) {
         const pg = nextPage || 'list'
         setPage(pg)
-        try {
-          setNotifications(await api.getNotifications())
-          if (pg === 'list') {
-            setReports(await api.listReports())
-          } else if (pg === 'workflow') {
-            setSampleRequests(await api.listSampleRequests())
-          } else {
-            setReports(await api.listReports())
-            setSampleRequests(await api.listSampleRequests())
-          }
-        } catch (e) { console.error('Failed to load initial data:', e) }
+        setAppLoading(false)
+        api.getNotifications().then((notifs) => {
+          if (active && notifs) setNotifications(notifs)
+        }).catch(() => {})
       }
     }).catch(() => {
-      if (active) setPage('login')
-    }).finally(() => {
-      if (active) setAppLoading(false)
+      if (active) {
+        setPage('login')
+        setAppLoading(false)
+      }
     })
     return () => { active = false }
   }, [])
@@ -688,14 +682,23 @@ function App() {
     const loadPageData = async () => {
       try {
         if (page === 'list') {
-          const data = await api.listReports({ force: true, from: dateFilter.from, to: dateFilter.to })
-          if (active) setReports(data)
+          const cached = await api.listReports({ force: false, from: dateFilter.from, to: dateFilter.to })
+          if (active && cached) setReports(cached)
+          api.listReports({ force: true, from: dateFilter.from, to: dateFilter.to }).then((fresh) => {
+            if (active && fresh) setReports(fresh)
+          }).catch(() => {})
         } else if (page === 'workflow') {
-          const data = await api.listSampleRequests({ force: true, from: dateFilter.from, to: dateFilter.to })
-          if (active) setSampleRequests(data)
+          const cached = await api.listSampleRequests({ force: false, from: dateFilter.from, to: dateFilter.to })
+          if (active && cached) setSampleRequests(cached)
+          api.listSampleRequests({ force: true, from: dateFilter.from, to: dateFilter.to }).then((fresh) => {
+            if (active && fresh) setSampleRequests(fresh)
+          }).catch(() => {})
         } else if (['templates', 'form'].includes(page)) {
-          const data = await api.listTemplates({ force: true })
-          if (active) setTemplates(data)
+          const cached = await api.listTemplates({ force: false })
+          if (active && cached) setTemplates(cached)
+          api.listTemplates({ force: true }).then((fresh) => {
+            if (active && fresh) setTemplates(fresh)
+          }).catch(() => {})
         }
       } catch (err) {
         console.error('Failed to load page data:', err)
@@ -973,20 +976,32 @@ function App() {
   const handleApprove = async (id) => {
     const remarks = window.prompt('Enter approval remarks (optional):')
     if (remarks === null) return
+    let previous
+    setSampleRequests((current) => {
+      previous = current
+      return current.map(r => r.id === id ? { ...r, data: { ...r.data, status: 'Approved' } } : r)
+    })
     try {
       const updated = await api.approveSampleRequest(id, remarks)
       setSampleRequests((current) => current.map(r => r.id === id ? updated : r))
     } catch (error) {
+      if (previous) setSampleRequests(previous)
       setAppError(error.message)
     }
   }
   const handleReject = async (id) => {
     const remarks = window.prompt('Enter rejection remarks (optional):')
     if (remarks === null) return
+    let previous
+    setSampleRequests((current) => {
+      previous = current
+      return current.map(r => r.id === id ? { ...r, data: { ...r.data, status: 'Rejected' } } : r)
+    })
     try {
       const updated = await api.rejectSampleRequest(id, remarks)
       setSampleRequests((current) => current.map(r => r.id === id ? updated : r))
     } catch (error) {
+      if (previous) setSampleRequests(previous)
       setAppError(error.message)
     }
   }
@@ -999,10 +1014,16 @@ function App() {
     }
   }
   const handleMarkExcelLogged = async (id) => {
+    let previous
+    setSampleRequests((current) => {
+      previous = current
+      return current.map(r => r.id === id ? { ...r, data: { ...r.data, status: 'Excel Logged' } } : r)
+    })
     try {
       const updated = await api.markExcelLogged(id)
       setSampleRequests((current) => current.map(r => r.id === id ? updated : r))
     } catch (error) {
+      if (previous) setSampleRequests(previous)
       setAppError(error.message)
     }
   }
@@ -1021,19 +1042,30 @@ function App() {
     }
   }
   const handleSubmitReview = async (id) => {
+    let previous
+    setSampleRequests((current) => {
+      previous = current
+      return current.map(r => r.id === id ? { ...r, data: { ...r.data, status: 'Submitted for Review' } } : r)
+    })
     try {
       const updated = await api.submitSampleRequestReview(id)
       setSampleRequests((current) => current.map(r => r.id === id ? updated : r))
     } catch (error) {
+      if (previous) setSampleRequests(previous)
       setAppError(error.message)
     }
   }
   const handleDeleteRequest = async (id) => {
     if (window.confirm('Are you sure you want to delete this sample request?')) {
+      let previous
+      setSampleRequests((current) => {
+        previous = current
+        return current.filter(r => r.id !== id)
+      })
       try {
         await api.deleteSampleRequest(id)
-        setSampleRequests(current => current.filter(r => r.id !== id))
       } catch (error) {
+        if (previous) setSampleRequests(previous)
         setAppError(error.message)
       }
     }
@@ -1069,22 +1101,24 @@ function App() {
     }
   }
   const handleFinalize = async (id) => {
+    let previous
+    setSampleRequests((current) => {
+      previous = current
+      return current.map(r => r.id === id ? { ...r, data: { ...r.data, status: 'Final/Sent' } } : r)
+    })
     try {
       const updated = await api.finalizeSampleRequest(id)
-      setSampleRequests(current => current.map(r => r.id === id ? updated : r))
+      setSampleRequests((current) => current.map(r => r.id === id ? updated : r))
     } catch (error) {
+      if (previous) setSampleRequests(previous)
       setAppError(error.message)
     }
   }
   const handleLogin = async (values) => {
     const user = await api.login(values)
     setCurrentUser(user)
-    try {
-      setNotifications(await api.getNotifications())
-      setReports(await api.listReports())
-      setSampleRequests(await api.listSampleRequests())
-    } catch(e) { console.error(e) }
     setPage('list')
+    api.getNotifications().then((n) => setNotifications(n)).catch(() => {})
   }
 
   const handleSignup = async (values) => {
